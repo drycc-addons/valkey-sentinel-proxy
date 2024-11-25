@@ -13,7 +13,7 @@ steps:
   commands:
   - podman run --rm -v $(pwd):/workspace -w /workspace registry.drycc.cc/drycc/go-dev make build
   - $(pwd)/_scripts/push_release.sh
-  - rm -rf bin
+  - rm -rf _dist
   secrets:
   - github_token
   when:

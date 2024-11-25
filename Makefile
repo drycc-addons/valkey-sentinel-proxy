@@ -2,7 +2,7 @@ all: build
 
 build:
 	@mkdir -p cmd
-	go build -o _dist/redis-sentinel-proxy ./cmd
+	go build -o _dist/valkey-sentinel-proxy ./cmd
 
 clean:
 	@rm -rf _dist
