@@ -1,6 +1,6 @@
-# Redis Proxy
+# Valkey Proxy
 
-Redis Proxy is a lightweight, fast but powerful Redis Sentinel Proxy written in Go.
+Valkey Proxy is a lightweight, fast but powerful Valkey Sentinel Proxy written in Go.
 
 ## Usage
 
