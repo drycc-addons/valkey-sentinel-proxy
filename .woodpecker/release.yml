@@ -14,8 +14,9 @@ steps:
   - podman run --rm -v $(pwd):/workspace -w /workspace registry.drycc.cc/drycc/go-dev make build
   - $(pwd)/_scripts/push_release.sh
   - rm -rf _dist
-  secrets:
-  - github_token
+  environment:
+    GITHUB_TOKEN:
+      from_secret: github_token
   when:
     event:
     - tag
