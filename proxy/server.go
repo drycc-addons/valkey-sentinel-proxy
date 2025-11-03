@@ -7,20 +7,20 @@ import (
 	"log"
 	"net"
 
-	"github.com/redis/go-redis/v9"
+	"github.com/valkey-io/valkey-go"
 )
 
 type redisProxyServer struct {
-	listener   *net.TCPAddr
-	sentinel   *redis.Options
-	masterName string
+	listener     *net.TCPAddr
+	clientOption valkey.ClientOption
+	masterName   string
 }
 
-func NewRedisProxyServer(listener *net.TCPAddr, sentinel *redis.Options, masterName string) *redisProxyServer {
+func NewRedisProxyServer(listener *net.TCPAddr, clientOption valkey.ClientOption, masterName string) *redisProxyServer {
 	return &redisProxyServer{
-		listener:   listener,
-		sentinel:   sentinel,
-		masterName: masterName,
+		listener:     listener,
+		clientOption: clientOption,
+		masterName:   masterName,
 	}
 }
 
@@ -42,11 +42,27 @@ func (r *redisProxyServer) proxy(local io.ReadWriteCloser, remoteAddr *net.TCPAd
 }
 
 func (r *redisProxyServer) master() (*net.TCPAddr, error) {
-	sentinel := redis.NewSentinelClient(r.sentinel)
-	addr, err := sentinel.GetMasterAddrByName(context.Background(), r.masterName).Result()
+	client, err := valkey.NewClient(r.clientOption)
 	if err != nil {
 		return nil, err
 	}
+	defer client.Close()
+
+	// Use SENTINEL GET-MASTER-ADDR-BY-NAME command to get master node address
+	resp := client.Do(context.Background(), client.B().Arbitrary("SENTINEL", "GET-MASTER-ADDR-BY-NAME").Args(r.masterName).Build())
+	if err := resp.Error(); err != nil {
+		return nil, err
+	}
+
+	addr, err := resp.AsStrSlice()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(addr) != 2 {
+		return nil, fmt.Errorf("invalid master address response: %v", addr)
+	}
+
 	redisMasterAddr, err := net.ResolveTCPAddr(
 		"tcp",
 		fmt.Sprintf("%s:%s", addr[0], addr[1]),

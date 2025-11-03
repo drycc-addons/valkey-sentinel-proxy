@@ -7,7 +7,7 @@ import (
 	"runtime"
 
 	"github.com/drycc-addons/redis-sentinel-proxy/proxy"
-	"github.com/redis/go-redis/v9"
+	"github.com/valkey-io/valkey-go"
 )
 
 var (
@@ -26,11 +26,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to resolve local address: %s", err)
 	}
-	options := &redis.Options{
-		Addr:     *sentinelAddr,
-		Username: *sentinelUser,
-		Password: *sentinelPass,
+	clientOption := valkey.ClientOption{
+		InitAddress: []string{*sentinelAddr},
+		Username:    *sentinelUser,
+		Password:    *sentinelPass,
 	}
-	server := proxy.NewRedisProxyServer(listenAddr, options, *master)
+	server := proxy.NewRedisProxyServer(listenAddr, clientOption, *master)
 	server.Serve()
 }
