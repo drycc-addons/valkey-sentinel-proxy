@@ -11,16 +11,16 @@ import (
 )
 
 type redisProxyServer struct {
-	listener    *net.TCPAddr
-	sentinel    *redis.Options
-	master_name string
+	listener   *net.TCPAddr
+	sentinel   *redis.Options
+	masterName string
 }
 
-func NewRedisProxyServer(listener *net.TCPAddr, sentinel *redis.Options, master_name string) *redisProxyServer {
+func NewRedisProxyServer(listener *net.TCPAddr, sentinel *redis.Options, masterName string) *redisProxyServer {
 	return &redisProxyServer{
-		listener:    listener,
-		sentinel:    sentinel,
-		master_name: master_name,
+		listener:   listener,
+		sentinel:   sentinel,
+		masterName: masterName,
 	}
 }
 
@@ -43,7 +43,7 @@ func (r *redisProxyServer) proxy(local io.ReadWriteCloser, remoteAddr *net.TCPAd
 
 func (r *redisProxyServer) master() (*net.TCPAddr, error) {
 	sentinel := redis.NewSentinelClient(r.sentinel)
-	addr, err := sentinel.GetMasterAddrByName(context.Background(), r.master_name).Result()
+	addr, err := sentinel.GetMasterAddrByName(context.Background(), r.masterName).Result()
 	if err != nil {
 		return nil, err
 	}
