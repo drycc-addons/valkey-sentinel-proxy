@@ -31,6 +31,10 @@ func main() {
 		Username:    *sentinelUser,
 		Password:    *sentinelPass,
 	}
-	server := proxy.NewRedisProxyServer(listenAddr, clientOption, *master)
+	server, err := proxy.NewRedisProxyServer(listenAddr, clientOption, *master)
+	if err != nil {
+		log.Fatalf("failed to create proxy server: %s", err)
+	}
+	defer server.Close()
 	server.Serve()
 }

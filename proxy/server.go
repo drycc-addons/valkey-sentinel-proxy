@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync"
 
 	"github.com/valkey-io/valkey-go"
 )
@@ -14,14 +15,20 @@ type redisProxyServer struct {
 	listener     *net.TCPAddr
 	clientOption valkey.ClientOption
 	masterName   string
+	client       valkey.Client
 }
 
-func NewRedisProxyServer(listener *net.TCPAddr, clientOption valkey.ClientOption, masterName string) *redisProxyServer {
+func NewRedisProxyServer(listener *net.TCPAddr, clientOption valkey.ClientOption, masterName string) (*redisProxyServer, error) {
+	client, err := valkey.NewClient(clientOption)
+	if err != nil {
+		return nil, err
+	}
 	return &redisProxyServer{
 		listener:     listener,
 		clientOption: clientOption,
 		masterName:   masterName,
-	}
+		client:       client,
+	}, nil
 }
 
 func (r *redisProxyServer) proxy(local io.ReadWriteCloser, remoteAddr *net.TCPAddr) {
@@ -31,25 +38,31 @@ func (r *redisProxyServer) proxy(local io.ReadWriteCloser, remoteAddr *net.TCPAd
 		local.Close()
 		return
 	}
-	go func(r io.Reader, w io.WriteCloser) {
-		io.Copy(w, r)
-		w.Close()
-	}(local, remote)
-	go func(r io.Reader, w io.WriteCloser) {
-		io.Copy(w, r)
-		w.Close()
-	}(remote, local)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		io.Copy(remote, local)
+		remote.CloseWrite()
+	}()
+
+	go func() {
+		defer wg.Done()
+		io.Copy(local, remote)
+		local.Close()
+	}()
+
+	go func() {
+		wg.Wait()
+		remote.Close()
+	}()
 }
 
 func (r *redisProxyServer) master() (*net.TCPAddr, error) {
-	client, err := valkey.NewClient(r.clientOption)
-	if err != nil {
-		return nil, err
-	}
-	defer client.Close()
-
 	// Use SENTINEL GET-MASTER-ADDR-BY-NAME command to get master node address
-	resp := client.Do(context.Background(), client.B().Arbitrary("SENTINEL", "GET-MASTER-ADDR-BY-NAME").Args(r.masterName).Build())
+	resp := r.client.Do(context.Background(), r.client.B().Arbitrary("SENTINEL", "GET-MASTER-ADDR-BY-NAME").Args(r.masterName).Build())
 	if err := resp.Error(); err != nil {
 		return nil, err
 	}
@@ -88,8 +101,16 @@ func (r *redisProxyServer) Serve() {
 		master, err := r.master()
 		if err != nil {
 			log.Println(err)
+			downstream.Close()
 			continue
 		}
 		go r.proxy(downstream, master)
 	}
+}
+
+func (r *redisProxyServer) Close() error {
+	if r.client != nil {
+		r.client.Close()
+	}
+	return nil
 }

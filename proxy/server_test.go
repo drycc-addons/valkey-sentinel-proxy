@@ -61,12 +61,16 @@ func TestNewRedisProxyServer(t *testing.T) {
 		},
 	}
 
-	server := NewRedisProxyServer(listenAddr, clientOption, "mymaster")
+	server, err := NewRedisProxyServer(listenAddr, clientOption, "mymaster")
 
 	// Verify the server is created correctly
+	if err != nil {
+		t.Skipf("Cannot create server in test environment: %v", err)
+	}
 	if server == nil {
 		t.Fatal("Expected server to be created, got nil")
 	}
+	defer server.Close()
 
 	if server.listener != listenAddr {
 		t.Errorf("Expected listener %v, got %v", listenAddr, server.listener)
@@ -95,10 +99,17 @@ func TestRedisProxyServer_master(t *testing.T) {
 		},
 	}
 
-	server := NewRedisProxyServer(listenAddr, clientOption, "mymaster")
+	server, err := NewRedisProxyServer(listenAddr, clientOption, "mymaster")
+	if err != nil {
+		// Expected - invalid address format
+		return
+	}
+	defer server.Close()
 
 	// This will fail to connect to an invalid address
-	_, err := server.master()
+
+	// This will fail to connect to an invalid address
+	_, err = server.master()
 	if err == nil {
 		t.Error("Expected error when connecting to invalid address, got nil")
 	}
@@ -107,8 +118,12 @@ func TestRedisProxyServer_master(t *testing.T) {
 func TestRedisProxyServer_proxy(t *testing.T) {
 	// Test case: Test proxy connection handling
 	listenAddr, _ := net.ResolveTCPAddr("tcp", ":9999")
-	clientOption := valkey.ClientOption{}
-	server := NewRedisProxyServer(listenAddr, clientOption, "mymaster")
+	clientOption := valkey.ClientOption{InitAddress: []string{"127.0.0.1:26379"}}
+	server, err := NewRedisProxyServer(listenAddr, clientOption, "mymaster")
+	if err != nil {
+		t.Skipf("Cannot create server in test environment: %v", err)
+	}
+	defer server.Close()
 
 	// Create mock connections
 	mockLocal := &mockConn{
@@ -159,8 +174,12 @@ func TestRedisProxyServer_Serve_InvalidListener(t *testing.T) {
 
 	// Use an invalid address that will fail to bind
 	invalidAddr, _ := net.ResolveTCPAddr("tcp", ":99999") // Invalid port
-	clientOption := valkey.ClientOption{}
-	server := NewRedisProxyServer(invalidAddr, clientOption, "mymaster")
+	clientOption := valkey.ClientOption{InitAddress: []string{"127.0.0.1:26379"}}
+	server, err := NewRedisProxyServer(invalidAddr, clientOption, "mymaster")
+	if err != nil {
+		t.Skipf("Cannot create server in test environment: %v", err)
+	}
+	defer server.Close()
 
 	// This should fail when trying to listen
 	// We can't directly test this without modifying the Serve method
@@ -184,12 +203,19 @@ func BenchmarkNewRedisProxyServer(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = NewRedisProxyServer(listenAddr, clientOption, "mymaster")
+		server, err := NewRedisProxyServer(listenAddr, clientOption, "mymaster")
+		if err == nil && server != nil {
+			server.Close()
+		}
 	}
 }
 
-// Test helper functions
-func setupTestServer(t *testing.T) (*redisProxyServer, *net.TCPAddr) {
+// Integration test (requires running sentinel)
+func TestRedisProxyServer_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
 	listenAddr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("Failed to resolve test address: %v", err)
@@ -202,22 +228,14 @@ func setupTestServer(t *testing.T) (*redisProxyServer, *net.TCPAddr) {
 		},
 	}
 
-	server := NewRedisProxyServer(listenAddr, clientOption, "mymaster")
-	return server, listenAddr
-}
-
-// Integration test (requires running sentinel)
-func TestRedisProxyServer_Integration(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+	server, err := NewRedisProxyServer(listenAddr, clientOption, "mymaster")
+	if err != nil {
+		t.Skipf("Integration test skipped - Redis Sentinel not available: %v", err)
 	}
-
-	// This test would require a running Redis Sentinel setup
-	// It's marked to skip in short test mode
-	server, _ := setupTestServer(t)
+	defer server.Close()
 
 	// Test that would require actual Redis Sentinel
-	_, err := server.master()
+	_, err = server.master()
 	// We expect this to fail in test environment
 	if err == nil {
 		t.Log("Integration test passed - Redis Sentinel is available")
@@ -256,8 +274,16 @@ func TestRedisProxyServer_masterErrorHandling(t *testing.T) {
 				},
 			}
 
-			server := NewRedisProxyServer(listenAddr, clientOption, tc.masterName)
-			_, err := server.master()
+			server, err := NewRedisProxyServer(listenAddr, clientOption, tc.masterName)
+			if err != nil {
+				if !tc.expectError {
+					t.Errorf("Failed to create server for test case %s: %v", tc.name, err)
+				}
+				return
+			}
+			defer server.Close()
+
+			_, err = server.master()
 
 			if tc.expectError && err == nil {
 				t.Errorf("Expected error for test case %s, got nil", tc.name)
